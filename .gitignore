@@ -1,0 +1,63 @@
+# Build output
+build/
+out/
+cmake-build-*/
+
+# Visual Studio
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.user
+*.sdf
+*.opensdf
+*.cache
+*.log
+*.pdb
+*.ilk
+*.obj
+*.lib
+*.exp
+*.exe
+*.dll
+*.iobj
+*.ipdb
+*.idb
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+Testing/
+
+# vcpkg
+vcpkg_installed/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Output images
+*.png
+*.tga
+*.bmp
+*.hdr
+
+# Reference projects (not part of this project)
+tiny_renderer/
+soft_ray_tracing/
+
+# Assets and docs (not tracked: source + build files only)
+assets/
+docs/

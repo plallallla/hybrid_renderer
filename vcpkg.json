@@ -1,0 +1,9 @@
+{
+  "name" : "hybrid-cpu-renderer",
+  "version" : "0.1.0",
+  "description" : "Unified CPU rendering framework supporting Rasterization, Path Tracing and Hybrid Rendering",
+  "dependencies" : [ {
+    "name" : "glm",
+    "version>=" : "1.0.3"
+  } ]
+}
