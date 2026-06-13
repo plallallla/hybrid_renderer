@@ -2,9 +2,11 @@
 
 #include "../core/image.h"
 #include "../core/math.h"
+#include "../third_party/stb_image.h"
 
 #include <cmath>
 #include <cctype>
+#include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <vector>
@@ -23,11 +25,82 @@ public:
         {
             return LoadPPM(path);
         }
-        if (lower == ".tga")
+        // png / jpg / jpeg / tga / bmp etc. are decoded by stb_image.
+        return LoadSTB(path);
+    }
+
+    // Loads two separate grayscale metallic / roughness maps and packs them
+    // into a single texture matching the glTF metallic-roughness convention
+    // sampled by MaterialEvaluator (G = roughness, B = metallic). Either path
+    // may be empty/missing, in which case that channel uses a sensible default
+    // (roughness 1.0, metallic 0.0).
+    bool LoadPackedMetallicRoughness(const std::string& metallicPath, const std::string& roughnessPath)
+    {
+        Texture2D metalTex;
+        Texture2D roughTex;
+        const bool hasMetal = !metallicPath.empty() && metalTex.LoadFromFile(metallicPath);
+        const bool hasRough = !roughnessPath.empty() && roughTex.LoadFromFile(roughnessPath);
+        if (!hasMetal && !hasRough)
         {
-            return LoadTGA(path);
+            return false;
         }
-        return false;
+
+        const Image<Vec3>& sizeRef = hasRough ? roughTex.image : metalTex.image;
+        const int width = sizeRef.Width();
+        const int height = sizeRef.Height();
+        image.Resize(width, height, {0.0f, 0.0f, 0.0f});
+
+        for (int y = 0; y < height; ++y)
+        {
+            for (int x = 0; x < width; ++x)
+            {
+                float roughness = 1.0f;
+                if (hasRough)
+                {
+                    roughness = roughTex.image.At(x, y).x;
+                }
+
+                float metallic = 0.0f;
+                if (hasMetal)
+                {
+                    const int mx = (metalTex.image.Width() == width) ? x : x * metalTex.image.Width() / width;
+                    const int my = (metalTex.image.Height() == height) ? y : y * metalTex.image.Height() / height;
+                    metallic = metalTex.image.At(mx, my).x;
+                }
+
+                image.At(x, y) = {0.0f, roughness, metallic};
+            }
+        }
+        return true;
+    }
+
+    bool LoadSTB(const std::string& path)
+    {
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+        unsigned char* data = stbi_load(path.c_str(), &width, &height, &channels, 3);
+        if (data == nullptr || width <= 0 || height <= 0)
+        {
+            if (data != nullptr)
+            {
+                stbi_image_free(data);
+            }
+            return false;
+        }
+
+        image.Resize(width, height, {0.0f, 0.0f, 0.0f});
+        const std::size_t pixelCount = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+        for (std::size_t i = 0; i < pixelCount; ++i)
+        {
+            image.Data()[i] = {
+                static_cast<float>(data[i * 3 + 0]) / 255.0f,
+                static_cast<float>(data[i * 3 + 1]) / 255.0f,
+                static_cast<float>(data[i * 3 + 2]) / 255.0f,
+            };
+        }
+        stbi_image_free(data);
+        return true;
     }
 
     bool LoadPPM(const std::string& path)

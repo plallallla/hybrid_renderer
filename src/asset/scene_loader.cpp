@@ -167,6 +167,28 @@ bool LoadSceneFromJson(const std::string& path, Scene& scene)
                             scene.textures.push_back(std::move(texture));
                         }
                     }
+
+                    // Separate grayscale metallic / roughness maps (common in
+                    // PBR texture packs) are packed into one metallic-roughness
+                    // texture matching the glTF convention.
+                    const JsonValue* metallicPath = materialValue.Find("metallicTexture");
+                    const JsonValue* roughnessPath = materialValue.Find("roughnessTexture");
+                    if ((metallicPath && metallicPath->IsString()) || (roughnessPath && roughnessPath->IsString()))
+                    {
+                        const std::string resolvedMetallic = (metallicPath && metallicPath->IsString())
+                            ? ResolveRelativePath(baseDir, metallicPath->AsString())
+                            : std::string();
+                        const std::string resolvedRoughness = (roughnessPath && roughnessPath->IsString())
+                            ? ResolveRelativePath(baseDir, roughnessPath->AsString())
+                            : std::string();
+
+                        Texture2D packed;
+                        if (packed.LoadPackedMetallicRoughness(resolvedMetallic, resolvedRoughness))
+                        {
+                            material.metallicRoughnessTexture = static_cast<int>(scene.textures.size());
+                            scene.textures.push_back(std::move(packed));
+                        }
+                    }
                 }
                 scene.materials.push_back(std::move(material));
             }

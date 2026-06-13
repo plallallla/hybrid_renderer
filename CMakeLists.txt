@@ -17,6 +17,7 @@ add_executable(hybrid_renderer
     src/renderer/rasterizer/rasterizer.cpp
     src/renderer/trace_primitive_builder.cpp
     src/scene/obj_loader.cpp
+    src/third_party/stb_image_impl.cpp
     ${GEOMETRY_SOURCES}
 )
 
