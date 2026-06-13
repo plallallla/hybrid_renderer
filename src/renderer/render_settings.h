@@ -18,5 +18,9 @@ struct RenderSettings
 
     float exposure = 1.0f;
     bool enableGammaCorrection = true;
+
+    // Acceleration structure toggle for PathTracer / Hybrid ray queries.
+    // Disable to fall back to brute-force traversal (BVH-vs-brute comparison).
+    bool useBVH = true;
 };
 } // namespace hr

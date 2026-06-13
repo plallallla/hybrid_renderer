@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bvh.h"
 #include "trace_primitive.h"
 
 #include <limits>
@@ -22,7 +23,15 @@ public:
 
     bool IsValid() const { return !m_primitives.empty(); }
 
+    // Toggle the acceleration structure off to fall back to brute-force
+    // traversal. Used for BVH-vs-brute-force correctness comparison; the public
+    // Intersect/Occluded results must be identical either way.
+    void SetUseBVH(bool useBVH) { m_useBVH = useBVH; }
+    bool UsesBVH() const { return m_useBVH && !m_bvh.Empty(); }
+
 private:
     std::vector<TracePrimitive> m_primitives;
+    BVH m_bvh;
+    bool m_useBVH = true;
 };
 } // namespace hr

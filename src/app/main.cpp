@@ -2,10 +2,11 @@
 #include "../core/framebuffer.h"
 #include "../core/png_writer.h"
 #include "../core/render_settings.h"
+#include "../renderer/hybrid/hybrid_renderer.h"
+#include "../renderer/path_tracer/path_tracer.h"
 #include "../renderer/rasterizer/rasterizer.h"
 
 #include <cstdlib>
-#include <exception>
 #include <iostream>
 #include <string>
 
@@ -25,112 +26,93 @@ void OpenImage(const std::string& path)
     std::system(command.c_str());
 }
 
-struct CliOptions
+// ---------------------------------------------------------------------------
+// Render configuration. Edit these values directly instead of passing CLI
+// arguments. (CLI parsing was intentionally removed.)
+// ---------------------------------------------------------------------------
+struct Options
 {
-    std::string mode = "raster";
-    std::string scenePath;
+    // "raster" | "pathtrace" | "hybrid"
+    std::string mode = "hybrid";
+
+    // Scene JSON to load. If empty, falls back to phase3_demo.json.
+    std::string scenePath = "assets/scenes/hybrid_demo.json";
+
+    // Output image path.
     std::string outputPath = "output.png";
-    int width = 800;
-    int height = 600;
+
+    // Output resolution.
+    int width = 600;
+    int height = 450;
+
+    // PathTracer controls (ignored by raster).
+    int spp = 128;      // samples per pixel
+    int maxDepth = 24;  // max ray bounces
+
+    // Hybrid feature toggles (ignored by raster / pathtrace).
+    bool enableShadow = true;
+    bool enableAO = true;
+    bool enableReflection = true;
+
+    // Ray-traversal acceleration (pathtrace / hybrid). false = brute force.
+    bool useBVH = true;
 };
-
-bool ParseArguments(int argc, char** argv, CliOptions& options)
-{
-    try
-    {
-        for (int i = 1; i < argc; ++i)
-        {
-            const std::string arg = argv[i];
-            if (arg == "--mode" && i + 1 < argc)
-            {
-                options.mode = argv[++i];
-            }
-            else if (arg == "--scene" && i + 1 < argc)
-            {
-                options.scenePath = argv[++i];
-            }
-            else if (arg == "--output" && i + 1 < argc)
-            {
-                options.outputPath = argv[++i];
-            }
-            else if (arg == "--width" && i + 1 < argc)
-            {
-                options.width = std::stoi(argv[++i]);
-            }
-            else if (arg == "--height" && i + 1 < argc)
-            {
-                options.height = std::stoi(argv[++i]);
-            }
-            else if (arg == "--help")
-            {
-                return false;
-            }
-            else
-            {
-                std::cerr << "Unknown or incomplete argument: " << arg << '\n';
-                return false;
-            }
-        }
-        return true;
-    }
-    catch (const std::exception& e)
-    {
-        std::cerr << "Invalid command line argument: " << e.what() << '\n';
-        return false;
-    }
-}
-
-void PrintUsage()
-{
-    std::cout << "HybridCPU_Renderer\n"
-              << "  --mode raster\n"
-              << "  --scene scene.json\n"
-              << "  --output output.png\n"
-              << "  --width 800\n"
-              << "  --height 600\n";
-}
 } // namespace
 
-int main(int argc, char** argv)
+int main()
 {
-    CliOptions options;
-    if (!ParseArguments(argc, argv, options))
+    const Options options;
+
+    if (options.mode != "raster" && options.mode != "pathtrace" && options.mode != "hybrid")
     {
-        PrintUsage();
+        std::cerr << "Unsupported mode '" << options.mode << "'. Use raster, pathtrace or hybrid." << std::endl;
         return 1;
     }
 
-    if (options.mode != "raster")
-    {
-        std::cerr << "Only --mode raster is implemented in this phase." << std::endl;
-        return 1;
-    }
-
+    // Try the scene path relative to a few working directories (repo root or
+    // the build/Debug output dir) so the hardcoded relative path resolves
+    // regardless of where the executable is launched from.
+    const std::string sceneRelative = options.scenePath.empty() ? "assets/scenes/phase3_demo.json" : options.scenePath;
     hr::Scene scene;
-    if (!options.scenePath.empty())
+    bool sceneLoaded = false;
+    for (const std::string& prefix : {"", "../", "../../"})
     {
-        if (!hr::LoadSceneFromJson(options.scenePath, scene))
+        if (hr::LoadSceneFromJson(prefix + sceneRelative, scene))
         {
-            std::cerr << "Failed to load scene from JSON, using default scene." << std::endl;
-            scene = hr::CreateDefaultScene();
+            sceneLoaded = true;
+            break;
         }
     }
-    else
+    if (!sceneLoaded)
     {
-        if (!hr::LoadSceneFromJson("assets/scenes/phase3_demo.json", scene) &&
-            !hr::LoadSceneFromJson("../assets/scenes/phase3_demo.json", scene))
-        {
-            scene = hr::CreateDefaultScene();
-        }
+        std::cerr << "Failed to load scene '" << sceneRelative << "', using default scene." << std::endl;
+        scene = hr::CreateDefaultScene();
     }
 
     hr::RenderSettings settings;
     settings.width = options.width;
     settings.height = options.height;
+    settings.samplesPerPixel = options.spp;
+    settings.maxDepth = options.maxDepth;
+    settings.enableRayTracedShadow = options.enableShadow;
+    settings.enableRayTracedAO = options.enableAO;
+    settings.enableRayTracedReflection = options.enableReflection;
+    settings.useBVH = options.useBVH;
 
     hr::Framebuffer framebuffer;
-    hr::SoftwareRasterizer renderer;
-    renderer.Render(scene, scene.camera, framebuffer, settings);
+    hr::SoftwareRasterizer rasterizer;
+    hr::PathTracer pathTracer;
+    hr::HybridRenderer hybridRenderer;
+    hr::IRenderer* renderer = &rasterizer;
+    if (options.mode == "pathtrace")
+    {
+        renderer = &pathTracer;
+    }
+    else if (options.mode == "hybrid")
+    {
+        renderer = &hybridRenderer;
+    }
+    renderer->Render(scene, scene.camera, framebuffer, settings);
 
     if (!hr::WritePng(options.outputPath, framebuffer.color))
     {
@@ -138,7 +120,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::cout << "Rendered " << options.outputPath << " in raster mode." << std::endl;
+    std::cout << "Rendered " << options.outputPath << " in " << options.mode << " mode." << std::endl;
 
     OpenImage(options.outputPath);
     return 0;

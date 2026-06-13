@@ -152,7 +152,13 @@ void RasterizeScene(
                     }
 
                     const float invW = w0 * v0.invW + w1 * v1.invW + w2 * v2.invW;
-                    const float depth = (w0 * v0.screenZ * v0.invW + w1 * v1.screenZ * v1.invW + w2 * v2.screenZ * v2.invW) / invW;
+                    // screenZ is the post-perspective-divide depth, which is
+                    // affine in screen space, so it interpolates with plain
+                    // screen-space barycentrics. (Perspective-correcting it —
+                    // dividing by invW — distorts depth on triangles whose
+                    // vertices span a wide w range, e.g. a large ground plane,
+                    // making it wrongly win the depth test over nearer geometry.)
+                    const float depth = w0 * v0.screenZ + w1 * v1.screenZ + w2 * v2.screenZ;
 
                     float& currentDepth = depthBuffer.At(x, y);
                     if (depth >= currentDepth)

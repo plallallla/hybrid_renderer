@@ -165,6 +165,96 @@ int main()
         }
     }
 
+    // --- Task 7: BVH vs brute-force consistency ---
+    {
+        Random rng(1234);
+        std::vector<TracePrimitive> primitives;
+
+        // A field of spheres.
+        for (int i = 0; i < 150; ++i)
+        {
+            Sphere sphere;
+            sphere.center = {
+                (rng.NextFloat() - 0.5f) * 20.0f,
+                (rng.NextFloat() - 0.5f) * 20.0f,
+                (rng.NextFloat() - 0.5f) * 20.0f,
+            };
+            sphere.radius = 0.2f + rng.NextFloat() * 0.8f;
+            sphere.materialId = i % 4;
+
+            TracePrimitive prim;
+            prim.type = TracePrimitiveType::Sphere;
+            prim.sphere = sphere;
+            prim.materialID = sphere.materialId;
+            prim.primitiveID = static_cast<int>(primitives.size());
+            primitives.push_back(prim);
+        }
+        // Some triangles mixed in.
+        for (int i = 0; i < 60; ++i)
+        {
+            const Vec3 base{
+                (rng.NextFloat() - 0.5f) * 20.0f,
+                (rng.NextFloat() - 0.5f) * 20.0f,
+                (rng.NextFloat() - 0.5f) * 20.0f,
+            };
+            TracePrimitive prim;
+            prim.type = TracePrimitiveType::Triangle;
+            prim.triangle.v0 = {base, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}};
+            prim.triangle.v1 = {base + Vec3{rng.NextFloat() * 2.0f, rng.NextFloat() * 2.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}};
+            prim.triangle.v2 = {base + Vec3{0.0f, rng.NextFloat() * 2.0f, rng.NextFloat() * 2.0f}, {0.0f, 1.0f, 0.0f}, {0.5f, 1.0f}};
+            prim.materialID = i % 4;
+            prim.primitiveID = static_cast<int>(primitives.size());
+            primitives.push_back(prim);
+        }
+
+        RayScene scene;
+        scene.Build(primitives);
+        Check(scene.UsesBVH(), "RayScene uses BVH after Build");
+
+        int intersectMismatches = 0;
+        int occludedMismatches = 0;
+        const int rayCount = 2000;
+        for (int i = 0; i < rayCount; ++i)
+        {
+            const Vec3 origin{
+                (rng.NextFloat() - 0.5f) * 30.0f,
+                (rng.NextFloat() - 0.5f) * 30.0f,
+                (rng.NextFloat() - 0.5f) * 30.0f,
+            };
+            const Vec3 dir = Normalize({
+                rng.NextFloat() * 2.0f - 1.0f,
+                rng.NextFloat() * 2.0f - 1.0f,
+                rng.NextFloat() * 2.0f - 1.0f,
+            });
+            const Ray ray{origin, dir};
+            const float tMax = 50.0f;
+
+            scene.SetUseBVH(true);
+            HitRecord bvhHit;
+            const bool bvhDidHit = scene.Intersect(ray, bvhHit, EPSILON, tMax);
+            const bool bvhOccluded = scene.Occluded(ray, EPSILON, tMax);
+
+            scene.SetUseBVH(false);
+            HitRecord bruteHit;
+            const bool bruteDidHit = scene.Intersect(ray, bruteHit, EPSILON, tMax);
+            const bool bruteOccluded = scene.Occluded(ray, EPSILON, tMax);
+
+            if (bvhDidHit != bruteDidHit ||
+                (bvhDidHit && (bvhHit.primitiveID != bruteHit.primitiveID || !NearEqual(bvhHit.t, bruteHit.t))))
+            {
+                ++intersectMismatches;
+            }
+            if (bvhOccluded != bruteOccluded)
+            {
+                ++occludedMismatches;
+            }
+        }
+        scene.SetUseBVH(true);
+
+        Check(intersectMismatches == 0, "BVH vs brute-force Intersect identical over 2000 random rays");
+        Check(occludedMismatches == 0, "BVH vs brute-force Occluded identical over 2000 random rays");
+    }
+
     if (g_failures == 0)
     {
         std::printf("\nAll geometry tests passed.\n");

@@ -350,19 +350,6 @@ bool LoadSceneFromJson(const std::string& path, Scene& scene)
         }
     }
 
-    if (scene.meshes.empty())
-    {
-        Mesh mesh;
-        mesh.materialId = 0;
-        mesh.vertices = {
-            {{-1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
-            {{1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
-            {{0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.5f, 1.0f}},
-        };
-        mesh.triangles.push_back({0, 1, 2});
-        scene.meshes.push_back(mesh);
-    }
-
     if (const JsonValue* spheres = root.Find("spheres"))
     {
         if (spheres->IsArray())
@@ -385,6 +372,22 @@ bool LoadSceneFromJson(const std::string& path, Scene& scene)
                 scene.spheres.push_back(sphere);
             }
         }
+    }
+
+    // Only fall back to a placeholder triangle when the scene has no renderable
+    // geometry at all. A spheres-only scene (e.g. a path-trace test scene) is
+    // valid and must not get a spurious triangle injected into it.
+    if (scene.meshes.empty() && scene.spheres.empty())
+    {
+        Mesh mesh;
+        mesh.materialId = 0;
+        mesh.vertices = {
+            {{-1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+            {{1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+            {{0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.5f, 1.0f}},
+        };
+        mesh.triangles.push_back({0, 1, 2});
+        scene.meshes.push_back(mesh);
     }
 
     return true;
