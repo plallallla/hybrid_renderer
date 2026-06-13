@@ -20,5 +20,6 @@ struct Scene
     std::vector<Mesh> meshes;
     std::vector<Sphere> spheres;
     std::vector<DirectionalLight> lights;
+    std::vector<PointLight> pointLights;
 };
 } // namespace hr

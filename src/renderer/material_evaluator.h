@@ -4,6 +4,7 @@
 #include "../scene/scene.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace hr
 {
@@ -13,6 +14,7 @@ struct MaterialSample
     Vec3 normal{0.0f, 1.0f, 0.0f};
     float metallic = 0.0f;
     float roughness = 0.5f;
+    float ao = 1.0f;
 };
 
 class MaterialEvaluator
@@ -34,7 +36,15 @@ public:
 
         if (material.baseColorTexture >= 0 && material.baseColorTexture < static_cast<int>(scene.textures.size()))
         {
-            sample.baseColor = scene.textures[static_cast<size_t>(material.baseColorTexture)].Sample(uv.x, uv.y);
+            // Albedo maps are authored in sRGB; decode to linear before lighting
+            // (reference shader does pow(albedo, 2.2)). Other maps (normal /
+            // metallic / roughness / ao) are linear data and stay untouched.
+            const Vec3 srgb = scene.textures[static_cast<size_t>(material.baseColorTexture)].Sample(uv.x, uv.y);
+            sample.baseColor = {
+                std::pow(srgb.x, 2.2f),
+                std::pow(srgb.y, 2.2f),
+                std::pow(srgb.z, 2.2f),
+            };
         }
 
         if (material.metallicRoughnessTexture >= 0 && material.metallicRoughnessTexture < static_cast<int>(scene.textures.size()))
@@ -42,6 +52,11 @@ public:
             const Vec3 packed = scene.textures[static_cast<size_t>(material.metallicRoughnessTexture)].Sample(uv.x, uv.y);
             sample.roughness = Clamp(packed.y, 0.04f, 1.0f);
             sample.metallic = packed.z;
+        }
+
+        if (material.occlusionTexture >= 0 && material.occlusionTexture < static_cast<int>(scene.textures.size()))
+        {
+            sample.ao = scene.textures[static_cast<size_t>(material.occlusionTexture)].Sample(uv.x, uv.y).x;
         }
 
         if (material.normalTexture >= 0 && material.normalTexture < static_cast<int>(scene.textures.size()))

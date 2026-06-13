@@ -3,6 +3,7 @@
 #include "json.h"
 #include "../scene/obj_loader.h"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <utility>
@@ -44,6 +45,49 @@ Vec2 ReadVec2(const JsonValue* value, const Vec2& fallback)
         static_cast<float>(value->AsArray()[0].AsNumber(fallback.x)),
         static_cast<float>(value->AsArray()[1].AsNumber(fallback.y)),
     };
+}
+
+// Triangulated UV sphere, mirroring kill_cow's generate_sphere_vtx so the same
+// material can be shown on the canonical PBR test object via the rasterizer
+// (which only draws triangle meshes, not analytic spheres).
+Mesh CreateUVSphere(const Vec3& center, float radius, int segments, int rings)
+{
+    segments = std::max(segments, 3);
+    rings = std::max(rings, 2);
+
+    Mesh mesh;
+    const int stride = segments + 1;
+    for (int ring = 0; ring <= rings; ++ring)
+    {
+        const float v = static_cast<float>(ring) / static_cast<float>(rings);
+        const float theta = v * PI;
+        const float sinTheta = std::sin(theta);
+        const float cosTheta = std::cos(theta);
+        for (int seg = 0; seg <= segments; ++seg)
+        {
+            const float u = static_cast<float>(seg) / static_cast<float>(segments);
+            const float phi = u * TWO_PI;
+            const Vec3 dir{sinTheta * std::cos(phi), cosTheta, sinTheta * std::sin(phi)};
+
+            Vertex vertex;
+            vertex.position = center + dir * radius;
+            vertex.normal = dir;
+            vertex.uv = {u, 1.0f - v};
+            mesh.vertices.push_back(vertex);
+        }
+    }
+
+    for (int ring = 0; ring < rings; ++ring)
+    {
+        for (int seg = 0; seg < segments; ++seg)
+        {
+            const int a = ring * stride + seg;
+            const int b = a + stride;
+            mesh.triangles.push_back({a, b, a + 1});
+            mesh.triangles.push_back({a + 1, b, b + 1});
+        }
+    }
+    return mesh;
 }
 
 Mat4 ComposeTransform(const JsonValue* value)
@@ -168,6 +212,21 @@ bool LoadSceneFromJson(const std::string& path, Scene& scene)
                         }
                     }
 
+                    texturePath = materialValue.Find("occlusionTexture");
+                    if (!texturePath || !texturePath->IsString())
+                    {
+                        texturePath = materialValue.Find("aoTexture");
+                    }
+                    if (texturePath && texturePath->IsString())
+                    {
+                        Texture2D texture;
+                        if (texture.LoadFromFile(ResolveRelativePath(baseDir, texturePath->AsString())))
+                        {
+                            material.occlusionTexture = static_cast<int>(scene.textures.size());
+                            scene.textures.push_back(std::move(texture));
+                        }
+                    }
+
                     // Separate grayscale metallic / roughness maps (common in
                     // PBR texture packs) are packed into one metallic-roughness
                     // texture matching the glTF convention.
@@ -218,7 +277,25 @@ bool LoadSceneFromJson(const std::string& path, Scene& scene)
         }
     }
 
-    if (scene.lights.empty())
+    if (const JsonValue* pointLights = root.Find("pointLights"))
+    {
+        if (pointLights->IsArray())
+        {
+            for (const JsonValue& lightValue : pointLights->AsArray())
+            {
+                PointLight light;
+                if (lightValue.IsObject())
+                {
+                    light.position = ReadVec3(lightValue.Find("position"), light.position);
+                    light.color = ReadVec3(lightValue.Find("color"), light.color);
+                    light.intensity = static_cast<float>(lightValue.Find("intensity") ? lightValue.Find("intensity")->AsNumber(light.intensity) : light.intensity);
+                }
+                scene.pointLights.push_back(light);
+            }
+        }
+    }
+
+    if (scene.lights.empty() && scene.pointLights.empty())
     {
         scene.lights.push_back(DirectionalLight{});
     }
@@ -235,8 +312,17 @@ bool LoadSceneFromJson(const std::string& path, Scene& scene)
                 }
 
                 Mesh mesh;
+                const JsonValue* sphereDesc = meshValue.Find("sphere");
                 const std::string objPath = meshValue.Find("obj") ? meshValue.Find("obj")->AsString() : std::string();
-                if (!objPath.empty())
+                if (sphereDesc && sphereDesc->IsObject())
+                {
+                    const Vec3 center = ReadVec3(sphereDesc->Find("center"), {0.0f, 0.0f, 0.0f});
+                    const float radius = static_cast<float>(sphereDesc->Find("radius") ? sphereDesc->Find("radius")->AsNumber(1.0) : 1.0);
+                    const int segments = static_cast<int>(sphereDesc->Find("segments") ? sphereDesc->Find("segments")->AsNumber(64.0) : 64.0);
+                    const int rings = static_cast<int>(sphereDesc->Find("rings") ? sphereDesc->Find("rings")->AsNumber(32.0) : 32.0);
+                    mesh = CreateUVSphere(center, radius, segments, rings);
+                }
+                else if (!objPath.empty())
                 {
                     if (!LoadObj(ResolveRelativePath(baseDir, objPath), mesh))
                     {

@@ -59,7 +59,12 @@ inline Vec3 EvaluatePBRDirect(
     const float G = GeometrySmith(NdotV, NdotL, material.roughness);
 
     const Vec3 specular = F * (D * G / (4.0f * NdotV * NdotL));
-    const Vec3 diffuse = material.baseColor * (INV_PI * (1.0f - material.metallic));
+
+    // Energy-conserving diffuse: kD = (1 - F) * (1 - metallic), matching the
+    // reference shader (kill_cow) so specular Fresnel removes that energy from
+    // the diffuse lobe.
+    const Vec3 kD = (Vec3{1.0f, 1.0f, 1.0f} - F) * (1.0f - material.metallic);
+    const Vec3 diffuse = kD * material.baseColor * INV_PI;
 
     return (diffuse + specular) * lightRadiance * NdotL;
 }

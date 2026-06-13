@@ -4,12 +4,27 @@
 #include "../core/render_settings.h"
 #include "../renderer/rasterizer/rasterizer.h"
 
+#include <cstdlib>
 #include <exception>
 #include <iostream>
 #include <string>
 
 namespace
 {
+// Opens the rendered image with the OS default viewer. `open` is macOS-only,
+// so dispatch per-platform (Windows: start, Linux: xdg-open) to actually work.
+void OpenImage(const std::string& path)
+{
+#if defined(_WIN32)
+    const std::string command = "start \"\" \"" + path + "\"";
+#elif defined(__APPLE__)
+    const std::string command = "open \"" + path + "\"";
+#else
+    const std::string command = "xdg-open \"" + path + "\"";
+#endif
+    std::system(command.c_str());
+}
+
 struct CliOptions
 {
     std::string mode = "raster";
@@ -124,5 +139,7 @@ int main(int argc, char** argv)
     }
 
     std::cout << "Rendered " << options.outputPath << " in raster mode." << std::endl;
+
+    OpenImage(options.outputPath);
     return 0;
 }

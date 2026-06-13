@@ -12,5 +12,6 @@ struct Material
     int baseColorTexture = -1;
     int normalTexture = -1;
     int metallicRoughnessTexture = -1;
+    int occlusionTexture = -1; // baked ambient-occlusion map (R channel)
 };
 } // namespace hr

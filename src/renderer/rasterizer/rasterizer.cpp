@@ -211,7 +211,16 @@ Vec3 ShadePixel(
         color = color + EvaluatePBRDirect(sample, sample.normal, viewDir, lightDir, lightRadiance);
     }
 
-    color = color + sample.baseColor * 0.03f;
+    for (const PointLight& light : scene.pointLights)
+    {
+        const Vec3 lightDir = Normalize(light.position - worldPosition);
+        const Vec3 lightRadiance = light.color * light.intensity;
+        color = color + EvaluatePBRDirect(sample, sample.normal, viewDir, lightDir, lightRadiance);
+    }
+
+    // Weak ambient term, matching the reference PBR shader's
+    // `albedo * ao * 0.15` fill (sample.ao defaults to 1 when no AO map).
+    color = color + sample.baseColor * (sample.ao * 0.15f);
     return Clamp(color, 0.0f, 1.0f);
 }
 } // namespace
