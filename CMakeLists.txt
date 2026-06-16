@@ -45,3 +45,21 @@ add_executable(gbuffer_tests
 target_include_directories(gbuffer_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
+
+# Temporary comparison driver (Raster vs Hybrid vs PathTracer montage). Scaffolding.
+add_executable(compare
+    tools/compare.cpp
+    src/asset/scene_loader.cpp
+    src/core/png_writer.cpp
+    src/renderer/rasterizer/rasterizer.cpp
+    src/renderer/path_tracer/path_tracer.cpp
+    src/renderer/hybrid/hybrid_renderer.cpp
+    src/renderer/trace_primitive_builder.cpp
+    src/scene/obj_loader.cpp
+    src/third_party/stb_image_impl.cpp
+    ${GEOMETRY_SOURCES}
+)
+
+target_include_directories(compare PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)

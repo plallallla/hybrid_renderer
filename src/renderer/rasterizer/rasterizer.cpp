@@ -224,9 +224,48 @@ Vec3 ShadePixel(
         color = color + EvaluatePBRDirect(sample, sample.normal, viewDir, lightDir, lightRadiance);
     }
 
+    // Rectangular area lights, evaluated over a fixed deterministic grid with
+    // NO shadow ray (the rasterizer has no scene-traversal structure). This is
+    // the honest "pure rasterization" baseline: correct direct area lighting,
+    // but hard-edged — no shadows, no AO, no reflection, no global illumination.
+    for (const AreaLight& light : scene.areaLights)
+    {
+        const Vec3 nL = light.Normal();
+        const Vec3 Le = light.Radiance();
+        const float area = light.Area();
+        const int grid = 4;
+        Vec3 sum{0.0f, 0.0f, 0.0f};
+        for (int i = 0; i < grid; ++i)
+        {
+            for (int j = 0; j < grid; ++j)
+            {
+                const float ru = (static_cast<float>(i) + 0.5f) / static_cast<float>(grid) * 2.0f - 1.0f;
+                const float rv = (static_cast<float>(j) + 0.5f) / static_cast<float>(grid) * 2.0f - 1.0f;
+                const Vec3 Q = light.center + light.uVec * ru + light.vVec * rv;
+                const Vec3 toLight = Q - worldPosition;
+                const float distance = Length(toLight);
+                if (distance < EPSILON)
+                {
+                    continue;
+                }
+                const Vec3 lightDir = toLight / distance;
+                const float cosLight = std::abs(Dot(nL, lightDir));
+                if (cosLight <= 0.0f)
+                {
+                    continue;
+                }
+                const Vec3 radiance = Le * (cosLight * area / (distance * distance));
+                sum = sum + EvaluatePBRDirect(sample, sample.normal, viewDir, lightDir, radiance);
+            }
+        }
+        color = color + sum * (1.0f / static_cast<float>(grid * grid));
+    }
+
     // Weak ambient term, matching the reference PBR shader's
     // `albedo * ao * 0.15` fill (sample.ao defaults to 1 when no AO map).
     color = color + sample.baseColor * (sample.ao * 0.15f);
+    // Self-emission (area-light panels / emissive surfaces).
+    color = color + sample.emission;
     return Clamp(color, 0.0f, 1.0f);
 }
 } // namespace

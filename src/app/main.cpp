@@ -33,21 +33,25 @@ void OpenImage(const std::string& path)
 struct Options
 {
     // "raster" | "pathtrace" | "hybrid"
+    // Cornell Box is set up for both "hybrid" and "pathtrace"; flip this to
+    // switch which renderer runs.
     std::string mode = "hybrid";
 
     // Scene JSON to load. If empty, falls back to phase3_demo.json.
-    std::string scenePath = "assets/scenes/hybrid_demo.json";
+    std::string scenePath = "assets/scenes/cornell_box.json";
 
     // Output image path.
     std::string outputPath = "output.png";
 
-    // Output resolution.
+    // Square output to match the canonical Cornell Box framing.
     int width = 600;
-    int height = 450;
+    int height = 600;
 
-    // PathTracer controls (ignored by raster).
-    int spp = 128;      // samples per pixel
-    int maxDepth = 24;  // max ray bounces
+    // PathTracer controls (ignored by raster / hybrid). Cornell Box is closed
+    // and lit only by the ceiling panel, so it needs both plenty of samples
+    // and enough bounce depth for indirect light to converge.
+    int spp = 256;      // samples per pixel
+    int maxDepth = 8;   // max ray bounces
 
     // Hybrid feature toggles (ignored by raster / pathtrace).
     bool enableShadow = true;

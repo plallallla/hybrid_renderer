@@ -5,8 +5,8 @@
 
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 #include <utility>
+#include <filesystem>
 
 namespace hr
 {
@@ -87,6 +87,25 @@ Mesh CreateUVSphere(const Vec3& center, float radius, int segments, int rings)
             mesh.triangles.push_back({a + 1, b, b + 1});
         }
     }
+    return mesh;
+}
+
+// Flat rectangle centered at `center`, spanned by half-edge vectors u / v.
+// Corners are wound so the geometric normal matches normalize(cross(u, v)).
+// Used for walls / floor / ceiling and for the emissive quad behind an area
+// light.
+Mesh CreateQuad(const Vec3& center, const Vec3& u, const Vec3& v)
+{
+    const Vec3 normal = Normalize(Cross(u, v));
+    Mesh mesh;
+    mesh.vertices = {
+        {center - u - v, normal, {0.0f, 0.0f}},
+        {center + u - v, normal, {1.0f, 0.0f}},
+        {center + u + v, normal, {1.0f, 1.0f}},
+        {center - u + v, normal, {0.0f, 1.0f}},
+    };
+    mesh.triangles.push_back({0, 1, 2});
+    mesh.triangles.push_back({0, 2, 3});
     return mesh;
 }
 
@@ -180,6 +199,7 @@ bool LoadSceneFromJson(const std::string& path, Scene& scene)
                     material.baseColor = ReadVec3(materialValue.Find("baseColor"), material.baseColor);
                     material.metallic = static_cast<float>(materialValue.Find("metallic") ? materialValue.Find("metallic")->AsNumber(material.metallic) : material.metallic);
                     material.roughness = static_cast<float>(materialValue.Find("roughness") ? materialValue.Find("roughness")->AsNumber(material.roughness) : material.roughness);
+                    material.emission = ReadVec3(materialValue.Find("emission"), material.emission);
 
                     const JsonValue* texturePath = materialValue.Find("baseColorTexture");
                     if (texturePath && texturePath->IsString())
@@ -295,7 +315,42 @@ bool LoadSceneFromJson(const std::string& path, Scene& scene)
         }
     }
 
-    if (scene.lights.empty() && scene.pointLights.empty())
+    if (const JsonValue* areaLights = root.Find("areaLights"))
+    {
+        if (areaLights->IsArray())
+        {
+            for (const JsonValue& lightValue : areaLights->AsArray())
+            {
+                if (!lightValue.IsObject())
+                {
+                    continue;
+                }
+                AreaLight light;
+                light.center = ReadVec3(lightValue.Find("center"), light.center);
+                light.uVec = ReadVec3(lightValue.Find("u"), light.uVec);
+                light.vVec = ReadVec3(lightValue.Find("v"), light.vVec);
+                light.color = ReadVec3(lightValue.Find("color"), light.color);
+                light.intensity = static_cast<float>(lightValue.Find("intensity") ? lightValue.Find("intensity")->AsNumber(light.intensity) : light.intensity);
+                scene.areaLights.push_back(light);
+
+                // Materialize an emissive quad so the light is hittable by the
+                // path tracer and visible (as a bright panel) in raster/hybrid.
+                Material emissive;
+                emissive.baseColor = {0.0f, 0.0f, 0.0f};
+                emissive.metallic = 0.0f;
+                emissive.roughness = 1.0f;
+                emissive.emission = light.Radiance();
+                const int emissiveMaterialId = static_cast<int>(scene.materials.size());
+                scene.materials.push_back(emissive);
+
+                Mesh quad = CreateQuad(light.center, light.uVec, light.vVec);
+                quad.materialId = emissiveMaterialId;
+                scene.meshes.push_back(std::move(quad));
+            }
+        }
+    }
+
+    if (scene.lights.empty() && scene.pointLights.empty() && scene.areaLights.empty())
     {
         scene.lights.push_back(DirectionalLight{});
     }
@@ -313,8 +368,16 @@ bool LoadSceneFromJson(const std::string& path, Scene& scene)
 
                 Mesh mesh;
                 const JsonValue* sphereDesc = meshValue.Find("sphere");
+                const JsonValue* quadDesc = meshValue.Find("quad");
                 const std::string objPath = meshValue.Find("obj") ? meshValue.Find("obj")->AsString() : std::string();
-                if (sphereDesc && sphereDesc->IsObject())
+                if (quadDesc && quadDesc->IsObject())
+                {
+                    const Vec3 center = ReadVec3(quadDesc->Find("center"), {0.0f, 0.0f, 0.0f});
+                    const Vec3 u = ReadVec3(quadDesc->Find("u"), {1.0f, 0.0f, 0.0f});
+                    const Vec3 v = ReadVec3(quadDesc->Find("v"), {0.0f, 0.0f, 1.0f});
+                    mesh = CreateQuad(center, u, v);
+                }
+                else if (sphereDesc && sphereDesc->IsObject())
                 {
                     const Vec3 center = ReadVec3(sphereDesc->Find("center"), {0.0f, 0.0f, 0.0f});
                     const float radius = static_cast<float>(sphereDesc->Find("radius") ? sphereDesc->Find("radius")->AsNumber(1.0) : 1.0);

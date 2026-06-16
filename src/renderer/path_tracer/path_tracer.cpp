@@ -51,6 +51,11 @@ Vec3 PathTracer::TraceRay(const Scene& scene, const RayScene& rayScene, const Ra
         material = scene.materials[hit.materialID];
     }
 
+    // Self-emitted radiance (area lights / emissive surfaces). With no explicit
+    // light sampling, emissive geometry hit by bounce rays is what lights the
+    // scene (brute-force GI), so a closed room is lit purely by its ceiling
+    // panel — the Cornell-box model.
+    const Vec3 emitted = material.emission;
     const Vec3 attenuation = material.baseColor;
     Vec3 scatterDir;
 
@@ -71,13 +76,13 @@ Vec3 PathTracer::TraceRay(const Scene& scene, const RayScene& rayScene, const Ra
         scatterDir = Normalize(reflected + RandomUnitVector(rng) * material.roughness);
         if (Dot(scatterDir, hit.normal) <= 0.0f)
         {
-            // Scattered below the surface: absorbed.
-            return {0.0f, 0.0f, 0.0f};
+            // Scattered below the surface: absorbed (still counts emission).
+            return emitted;
         }
     }
 
     const Ray scattered{hit.position + hit.normal * EPSILON, scatterDir};
-    return attenuation * TraceRay(scene, rayScene, scattered, depth - 1, rng);
+    return emitted + attenuation * TraceRay(scene, rayScene, scattered, depth - 1, rng);
 }
 
 void PathTracer::Render(const Scene& scene, const Camera& camera, Framebuffer& output, const RenderSettings& settings)

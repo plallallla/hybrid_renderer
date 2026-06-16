@@ -15,6 +15,7 @@ struct MaterialSample
     float metallic = 0.0f;
     float roughness = 0.5f;
     float ao = 1.0f;
+    Vec3 emission{0.0f, 0.0f, 0.0f};
 };
 
 class MaterialEvaluator
@@ -33,6 +34,7 @@ public:
         sample.normal = Normalize(geometricNormal);
         sample.metallic = material.metallic;
         sample.roughness = Clamp(material.roughness, 0.04f, 1.0f);
+        sample.emission = material.emission;
 
         if (material.baseColorTexture >= 0 && material.baseColorTexture < static_cast<int>(scene.textures.size()))
         {

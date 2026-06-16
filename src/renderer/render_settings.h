@@ -6,8 +6,8 @@ struct RenderSettings
 {
     int width = 800;
     int height = 600;
-    int samplesPerPixel = 1;
-    int maxDepth = 4;
+    int samplesPerPixel = 5;
+    int maxDepth = 16;
 
     bool enableRayTracedShadow = true;
     bool enableRayTracedAO = false;
@@ -15,6 +15,9 @@ struct RenderSettings
 
     int aoSamples = 8;
     float aoRadius = 1.0f;
+
+    // Shadow-ray samples per rectangular area light (Hybrid soft shadows).
+    int areaLightSamples = 16;
 
     float exposure = 1.0f;
     bool enableGammaCorrection = true;
