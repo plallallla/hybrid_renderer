@@ -163,16 +163,20 @@ void HybridRenderer::Render(const Scene& scene, const Camera& camera, Framebuffe
     const int width = settings.width;
     const int height = settings.height;
 
-    // V1 step 1: rasterize primary visibility into the PBR GBuffer. Reuses the
-    // software rasterizer rather than re-implementing rasterization (§21).
+    // V1 step 1: rasterize primary visibility into the PBR GBuffer.
+    // Reuses the software rasterizer rather than re-implementing it here.
     SoftwareRasterizer rasterizer;
     GBuffer gbuffer;
     rasterizer.RenderGBuffer(scene, camera, gbuffer, settings);
 
     // Secondary effects query a RayScene built from the same scene geometry.
+    const bool needsRayScene = settings.enableRayTracedShadow || settings.enableRayTracedAO || settings.enableRayTracedReflection;
     RayScene rayScene;
-    rayScene.Build(BuildTracePrimitives(scene));
-    rayScene.SetUseBVH(settings.useBVH);
+    if (needsRayScene)
+    {
+        rayScene.Build(BuildTracePrimitives(scene));
+        rayScene.SetUseBVH(settings.useBVH);
+    }
 
     output.Resize(width, height);
     output.Clear(scene.background);
@@ -199,7 +203,7 @@ void HybridRenderer::Render(const Scene& scene, const Camera& camera, Framebuffe
                 }
 
                 // Emissive panels (area lights) are shown directly and skip
-                // shading entirely — they emit rather than receive light, and
+                // shading entirely; they emit rather than receive light, and
                 // self-lighting a coincident surface would produce fireflies.
                 const int materialId = gbuffer.materialID.At(x, y);
                 if (materialId >= 0 && materialId < static_cast<int>(scene.materials.size()))
@@ -232,7 +236,7 @@ void HybridRenderer::Render(const Scene& scene, const Camera& camera, Framebuffe
                     {
                         const Vec3 dir = SampleHemisphere(N, rng);
                         const Ray aoRay{P + N * EPSILON, dir};
-                        if (rayScene.Occluded(aoRay, EPSILON, settings.aoRadius))
+                    if (rayScene.Occluded(aoRay, EPSILON, settings.aoRadius))
                         {
                             ++occluded;
                         }

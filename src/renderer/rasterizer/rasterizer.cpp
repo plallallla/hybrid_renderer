@@ -27,7 +27,7 @@ struct ProjectedVertex
 // perspective-correct interpolated surface attributes plus the resolved
 // material, so that both Render() (lighting) and RenderGBuffer() (attribute
 // capture) can consume the same source of truth without duplicating the
-// rasterization loop (see render.md §21).
+// rasterization loop.
 struct Fragment
 {
     Vec3 worldPosition;
@@ -154,8 +154,8 @@ void RasterizeScene(
                     const float invW = w0 * v0.invW + w1 * v1.invW + w2 * v2.invW;
                     // screenZ is the post-perspective-divide depth, which is
                     // affine in screen space, so it interpolates with plain
-                    // screen-space barycentrics. (Perspective-correcting it —
-                    // dividing by invW — distorts depth on triangles whose
+                    // screen-space barycentrics. (Perspective-correcting it by
+                    // dividing by invW distorts depth on triangles whose
                     // vertices span a wide w range, e.g. a large ground plane,
                     // making it wrongly win the depth test over nearer geometry.)
                     const float depth = w0 * v0.screenZ + w1 * v1.screenZ + w2 * v2.screenZ;
@@ -204,7 +204,8 @@ Vec3 ShadePixel(
     const Vec2& uv,
     const Vec3& normal,
     const Vec3& tangent,
-    const Vec3& bitangent)
+    const Vec3& bitangent,
+    int areaLightSamples)
 {
     const MaterialSample sample = MaterialEvaluator::Evaluate(scene, material, uv, normal, tangent, bitangent);
     const Vec3 viewDir = Normalize(camera.position - worldPosition);
@@ -227,13 +228,13 @@ Vec3 ShadePixel(
     // Rectangular area lights, evaluated over a fixed deterministic grid with
     // NO shadow ray (the rasterizer has no scene-traversal structure). This is
     // the honest "pure rasterization" baseline: correct direct area lighting,
-    // but hard-edged — no shadows, no AO, no reflection, no global illumination.
+    // but hard-edged: no shadows, no AO, no reflection, no global illumination.
     for (const AreaLight& light : scene.areaLights)
     {
         const Vec3 nL = light.Normal();
         const Vec3 Le = light.Radiance();
         const float area = light.Area();
-        const int grid = 4;
+        const int grid = std::max(1, static_cast<int>(std::sqrt(static_cast<float>(std::max(1, areaLightSamples)))));
         Vec3 sum{0.0f, 0.0f, 0.0f};
         for (int i = 0; i < grid; ++i)
         {
@@ -284,7 +285,8 @@ void SoftwareRasterizer::Render(const Scene& scene, const Camera& camera, Frameb
             fragment.uv,
             fragment.normal,
             fragment.tangent,
-            fragment.bitangent);
+            fragment.bitangent,
+            settings.areaLightSamples);
     });
 }
 

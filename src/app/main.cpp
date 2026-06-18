@@ -1,131 +1,114 @@
 #include "../asset/scene_loader.h"
-#include "../core/framebuffer.h"
-#include "../core/png_writer.h"
-#include "../core/render_settings.h"
-#include "../renderer/hybrid/hybrid_renderer.h"
-#include "../renderer/path_tracer/path_tracer.h"
-#include "../renderer/rasterizer/rasterizer.h"
+#include "../asset/json.h"
+#include "render_demo.h"
 
-#include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <string>
 
 namespace
 {
-// Opens the rendered image with the OS default viewer. `open` is macOS-only,
-// so dispatch per-platform (Windows: start, Linux: xdg-open) to actually work.
-void OpenImage(const std::string& path)
+constexpr const char* kDemoEntryPath = "assets/scenes/demo_suite.json";
+
+bool LoadJsonFromDemoPath(const std::string& relativePath, hr::JsonValue& root, std::string& resolvedPath)
 {
-#if defined(_WIN32)
-    const std::string command = "start \"\" \"" + path + "\"";
-#elif defined(__APPLE__)
-    const std::string command = "open \"" + path + "\"";
-#else
-    const std::string command = "xdg-open \"" + path + "\"";
-#endif
-    std::system(command.c_str());
+    for (const std::string& prefix : {"", "../", "../../"})
+    {
+        const std::string candidate = prefix + relativePath;
+        if (hr::LoadJsonFile(candidate, root))
+        {
+            resolvedPath = candidate;
+            return true;
+        }
+    }
+    return false;
 }
 
-// ---------------------------------------------------------------------------
-// Render configuration. Edit these values directly instead of passing CLI
-// arguments. (CLI parsing was intentionally removed.)
-// ---------------------------------------------------------------------------
-struct Options
+std::string ResolveSiblingPath(const std::filesystem::path& ownerPath, const std::string& relativePath)
 {
-    // "raster" | "pathtrace" | "hybrid"
-    // Cornell Box is set up for both "hybrid" and "pathtrace"; flip this to
-    // switch which renderer runs.
-    std::string mode = "hybrid";
+    std::filesystem::path path(relativePath);
+    if (path.is_absolute())
+    {
+        return path.string();
+    }
+    return (ownerPath.parent_path() / path).string();
+}
 
-    // Scene JSON to load. If empty, falls back to phase3_demo.json.
-    std::string scenePath = "assets/scenes/cornell_box.json";
+std::string ReadScenePath(const hr::JsonValue& value)
+{
+    if (value.IsString())
+    {
+        return value.AsString();
+    }
+    if (value.IsObject())
+    {
+        const hr::JsonValue* path = value.Find("path");
+        if (path && path->IsString())
+        {
+            return path->AsString();
+        }
+    }
+    return {};
+}
 
-    // Output image path.
-    std::string outputPath = "output.png";
+int RunSceneFile(const std::string& scenePath)
+{
+    hr::JsonValue root;
+    if (!hr::LoadJsonFile(scenePath, root))
+    {
+        std::cerr << "Failed to load scene JSON '" << scenePath << "'." << std::endl;
+        return 1;
+    }
 
-    // Square output to match the canonical Cornell Box framing.
-    int width = 600;
-    int height = 600;
+    hr::Scene scene;
+    if (!hr::LoadSceneFromJson(scenePath, scene))
+    {
+        std::cerr << "Failed to build scene from '" << scenePath << "'." << std::endl;
+        return 1;
+    }
 
-    // PathTracer controls (ignored by raster / hybrid). Cornell Box is closed
-    // and lit only by the ceiling panel, so it needs both plenty of samples
-    // and enough bounce depth for indirect light to converge.
-    int spp = 256;      // samples per pixel
-    int maxDepth = 8;   // max ray bounces
-
-    // Hybrid feature toggles (ignored by raster / pathtrace).
-    bool enableShadow = true;
-    bool enableAO = true;
-    bool enableReflection = true;
-
-    // Ray-traversal acceleration (pathtrace / hybrid). false = brute force.
-    bool useBVH = true;
-};
+    std::cout << "\n=== " << scenePath << " ===" << std::endl;
+    const hr::DemoConfig config = hr::BuildDemoConfig(root);
+    return hr::RunRenderDemo(scene, config);
+}
 } // namespace
 
 int main()
 {
-    const Options options;
-
-    if (options.mode != "raster" && options.mode != "pathtrace" && options.mode != "hybrid")
+    hr::JsonValue root;
+    std::string entryPath;
+    if (!LoadJsonFromDemoPath(kDemoEntryPath, root, entryPath))
     {
-        std::cerr << "Unsupported mode '" << options.mode << "'. Use raster, pathtrace or hybrid." << std::endl;
+        std::cerr << "Failed to load demo entry JSON '" << kDemoEntryPath << "'." << std::endl;
         return 1;
     }
 
-    // Try the scene path relative to a few working directories (repo root or
-    // the build/Debug output dir) so the hardcoded relative path resolves
-    // regardless of where the executable is launched from.
-    const std::string sceneRelative = options.scenePath.empty() ? "assets/scenes/phase3_demo.json" : options.scenePath;
-    hr::Scene scene;
-    bool sceneLoaded = false;
-    for (const std::string& prefix : {"", "../", "../../"})
+    const hr::JsonValue* suite = root.Find("renderSuite");
+    if (suite && suite->IsObject())
     {
-        if (hr::LoadSceneFromJson(prefix + sceneRelative, scene))
+        const hr::JsonValue* scenes = suite->Find("scenes");
+        if (!scenes || !scenes->IsArray() || scenes->AsArray().empty())
         {
-            sceneLoaded = true;
-            break;
+            std::cerr << "renderSuite.scenes is empty in '" << entryPath << "'." << std::endl;
+            return 1;
         }
-    }
-    if (!sceneLoaded)
-    {
-        std::cerr << "Failed to load scene '" << sceneRelative << "', using default scene." << std::endl;
-        scene = hr::CreateDefaultScene();
-    }
 
-    hr::RenderSettings settings;
-    settings.width = options.width;
-    settings.height = options.height;
-    settings.samplesPerPixel = options.spp;
-    settings.maxDepth = options.maxDepth;
-    settings.enableRayTracedShadow = options.enableShadow;
-    settings.enableRayTracedAO = options.enableAO;
-    settings.enableRayTracedReflection = options.enableReflection;
-    settings.useBVH = options.useBVH;
-
-    hr::Framebuffer framebuffer;
-    hr::SoftwareRasterizer rasterizer;
-    hr::PathTracer pathTracer;
-    hr::HybridRenderer hybridRenderer;
-    hr::IRenderer* renderer = &rasterizer;
-    if (options.mode == "pathtrace")
-    {
-        renderer = &pathTracer;
-    }
-    else if (options.mode == "hybrid")
-    {
-        renderer = &hybridRenderer;
-    }
-    renderer->Render(scene, scene.camera, framebuffer, settings);
-
-    if (!hr::WritePng(options.outputPath, framebuffer.color))
-    {
-        std::cerr << "Failed to write output image." << std::endl;
-        return 1;
+        for (const hr::JsonValue& sceneEntry : scenes->AsArray())
+        {
+            const std::string relativeScenePath = ReadScenePath(sceneEntry);
+            if (relativeScenePath.empty())
+            {
+                std::cerr << "Invalid scene entry in '" << entryPath << "'." << std::endl;
+                return 1;
+            }
+            const int result = RunSceneFile(ResolveSiblingPath(entryPath, relativeScenePath));
+            if (result != 0)
+            {
+                return result;
+            }
+        }
+        return 0;
     }
 
-    std::cout << "Rendered " << options.outputPath << " in " << options.mode << " mode." << std::endl;
-
-    OpenImage(options.outputPath);
-    return 0;
+    return RunSceneFile(entryPath);
 }

@@ -109,6 +109,31 @@ Mesh CreateQuad(const Vec3& center, const Vec3& u, const Vec3& v)
     return mesh;
 }
 
+void AppendQuad(Mesh& dst, const Vec3& center, const Vec3& u, const Vec3& v)
+{
+    Mesh quad = CreateQuad(center, u, v);
+    const int base = static_cast<int>(dst.vertices.size());
+    dst.vertices.insert(dst.vertices.end(), quad.vertices.begin(), quad.vertices.end());
+    dst.triangles.push_back({base + 0, base + 1, base + 2});
+    dst.triangles.push_back({base + 0, base + 2, base + 3});
+}
+
+Mesh CreateBox(const Vec3& size)
+{
+    const float hx = size.x * 0.5f;
+    const float hy = size.y * 0.5f;
+    const float hz = size.z * 0.5f;
+
+    Mesh mesh;
+    AppendQuad(mesh, {-hx, 0.0f, 0.0f}, {0.0f, 0.0f, hz}, {0.0f, hy, 0.0f}); // -X
+    AppendQuad(mesh, { hx, 0.0f, 0.0f}, {0.0f, hy, 0.0f}, {0.0f, 0.0f, hz}); // +X
+    AppendQuad(mesh, {0.0f, -hy, 0.0f}, {hx, 0.0f, 0.0f}, {0.0f, 0.0f, hz}); // -Y
+    AppendQuad(mesh, {0.0f,  hy, 0.0f}, {0.0f, 0.0f, hz}, {hx, 0.0f, 0.0f}); // +Y
+    AppendQuad(mesh, {0.0f, 0.0f, -hz}, {0.0f, hy, 0.0f}, {hx, 0.0f, 0.0f}); // -Z
+    AppendQuad(mesh, {0.0f, 0.0f,  hz}, {hx, 0.0f, 0.0f}, {0.0f, hy, 0.0f}); // +Z
+    return mesh;
+}
+
 Mat4 ComposeTransform(const JsonValue* value)
 {
     if (!value || !value->IsObject())
@@ -118,7 +143,13 @@ Mat4 ComposeTransform(const JsonValue* value)
 
     const Vec3 translation = ReadVec3(value->Find("translation"), {0.0f, 0.0f, 0.0f});
     const Vec3 scale = ReadVec3(value->Find("scale"), {1.0f, 1.0f, 1.0f});
-    return Mat4::Translation(translation) * Mat4::Scale(scale);
+    const JsonValue* rotation = value->Find("rotationY");
+    if (!rotation)
+    {
+        rotation = value->Find("rotation_y");
+    }
+    const float rotationY = static_cast<float>(rotation ? rotation->AsNumber(0.0) : 0.0);
+    return Mat4::Translation(translation) * Mat4::RotationY(Radians(rotationY)) * Mat4::Scale(scale);
 }
 } // namespace
 
@@ -369,6 +400,7 @@ bool LoadSceneFromJson(const std::string& path, Scene& scene)
                 Mesh mesh;
                 const JsonValue* sphereDesc = meshValue.Find("sphere");
                 const JsonValue* quadDesc = meshValue.Find("quad");
+                const JsonValue* boxDesc = meshValue.Find("box");
                 const std::string objPath = meshValue.Find("obj") ? meshValue.Find("obj")->AsString() : std::string();
                 if (quadDesc && quadDesc->IsObject())
                 {
@@ -376,6 +408,11 @@ bool LoadSceneFromJson(const std::string& path, Scene& scene)
                     const Vec3 u = ReadVec3(quadDesc->Find("u"), {1.0f, 0.0f, 0.0f});
                     const Vec3 v = ReadVec3(quadDesc->Find("v"), {0.0f, 0.0f, 1.0f});
                     mesh = CreateQuad(center, u, v);
+                }
+                else if (boxDesc && boxDesc->IsObject())
+                {
+                    const Vec3 size = ReadVec3(boxDesc->Find("size"), {1.0f, 1.0f, 1.0f});
+                    mesh = CreateBox(size);
                 }
                 else if (sphereDesc && sphereDesc->IsObject())
                 {

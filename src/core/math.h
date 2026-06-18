@@ -173,6 +173,20 @@ struct Mat4
         return result;
     }
 
+    static Mat4 RotationY(float radians)
+    {
+        Mat4 result = Identity();
+        const float c = std::cos(radians);
+        const float s = std::sin(radians);
+        result.m = {
+            c, 0.0f, s, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f,
+            -s, 0.0f, c, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f,
+        };
+        return result;
+    }
+
     static Mat4 Perspective(float fovYRadians, float aspect, float nearPlane, float farPlane)
     {
         Mat4 result{};

@@ -1,8 +1,10 @@
 #include "path_tracer.h"
 
+#include "../pbr.h"
 #include "../tone_mapping.h"
 #include "../trace_primitive_builder.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <limits>
@@ -29,9 +31,67 @@ bool NearZero(const Vec3& v)
     const float s = 1e-8f;
     return std::abs(v.x) < s && std::abs(v.y) < s && std::abs(v.z) < s;
 }
+
+Vec3 EstimateDirectAreaLight(
+    const Scene& scene,
+    const RayScene& rayScene,
+    const HitRecord& hit,
+    const Material& material,
+    const Vec3& viewDir,
+    Random& rng,
+    const RenderSettings& settings)
+{
+    MaterialSample sample;
+    sample.baseColor = material.baseColor;
+    sample.normal = hit.normal;
+    sample.metallic = material.metallic;
+    sample.roughness = Clamp(material.roughness, 0.04f, 1.0f);
+
+    Vec3 direct{0.0f, 0.0f, 0.0f};
+    for (const AreaLight& light : scene.areaLights)
+    {
+        const Vec3 nL = light.Normal();
+        const Vec3 Le = light.Radiance();
+        const float area = light.Area();
+        const int samples = std::max(1, settings.areaLightSamples);
+        Vec3 sum{0.0f, 0.0f, 0.0f};
+
+        for (int i = 0; i < samples; ++i)
+        {
+            const float ru = rng.NextFloat() * 2.0f - 1.0f;
+            const float rv = rng.NextFloat() * 2.0f - 1.0f;
+            const Vec3 q = light.center + light.uVec * ru + light.vVec * rv;
+            const Vec3 toLight = q - hit.position;
+            const float distance = Length(toLight);
+            if (distance <= EPSILON)
+            {
+                continue;
+            }
+
+            const Vec3 L = toLight / distance;
+            const float cosLight = std::abs(Dot(nL, L));
+            if (cosLight <= 0.0f)
+            {
+                continue;
+            }
+
+            const Ray shadowRay{hit.position + hit.normal * EPSILON, L};
+            if (rayScene.Occluded(shadowRay, EPSILON, distance - EPSILON))
+            {
+                continue;
+            }
+
+            const Vec3 radiance = Le * (cosLight * area / (distance * distance));
+            sum = sum + EvaluatePBRDirect(sample, sample.normal, viewDir, L, radiance);
+        }
+
+        direct = direct + sum * (1.0f / static_cast<float>(samples));
+    }
+    return direct;
+}
 } // namespace
 
-Vec3 PathTracer::TraceRay(const Scene& scene, const RayScene& rayScene, const Ray& ray, int depth, Random& rng) const
+Vec3 PathTracer::TraceRay(const Scene& scene, const RayScene& rayScene, const Ray& ray, int depth, Random& rng, const RenderSettings& settings) const
 {
     if (depth <= 0)
     {
@@ -51,11 +111,12 @@ Vec3 PathTracer::TraceRay(const Scene& scene, const RayScene& rayScene, const Ra
         material = scene.materials[hit.materialID];
     }
 
-    // Self-emitted radiance (area lights / emissive surfaces). With no explicit
-    // light sampling, emissive geometry hit by bounce rays is what lights the
-    // scene (brute-force GI), so a closed room is lit purely by its ceiling
-    // panel — the Cornell-box model.
+    // Emissive geometry remains hittable by bounce rays, while the explicit
+    // area-light estimate below keeps closed Cornell-style rooms converging.
     const Vec3 emitted = material.emission;
+    const Vec3 direct = Dot(emitted, emitted) > 0.0f
+        ? Vec3{0.0f, 0.0f, 0.0f}
+        : EstimateDirectAreaLight(scene, rayScene, hit, material, Normalize(-ray.direction), rng, settings);
     const Vec3 attenuation = material.baseColor;
     Vec3 scatterDir;
 
@@ -82,7 +143,7 @@ Vec3 PathTracer::TraceRay(const Scene& scene, const RayScene& rayScene, const Ra
     }
 
     const Ray scattered{hit.position + hit.normal * EPSILON, scatterDir};
-    return emitted + attenuation * TraceRay(scene, rayScene, scattered, depth - 1, rng);
+    return emitted + direct + attenuation * TraceRay(scene, rayScene, scattered, depth - 1, rng, settings);
 }
 
 void PathTracer::Render(const Scene& scene, const Camera& camera, Framebuffer& output, const RenderSettings& settings)
@@ -121,7 +182,7 @@ void PathTracer::Render(const Scene& scene, const Camera& camera, Framebuffer& o
                     const float u = (static_cast<float>(x) + rng.NextFloat()) / static_cast<float>(width);
                     const float v = (static_cast<float>(y) + rng.NextFloat()) / static_cast<float>(height);
                     const Ray ray = cam.GenerateRay(u, v);
-                    color = color + TraceRay(scene, rayScene, ray, maxDepth, rng);
+                    color = color + TraceRay(scene, rayScene, ray, maxDepth, rng, settings);
                 }
 
                 color = color * invSpp;

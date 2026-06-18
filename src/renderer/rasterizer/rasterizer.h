@@ -13,8 +13,7 @@ public:
     // Rasterizes scene visibility and writes per-pixel geometry/material
     // attributes into the GBuffer (position/normal/baseColor/metallic/
     // roughness/depth/materialID/valid) without performing any lighting.
-    // Hybrid rendering reuses this rather than re-implementing rasterization
-    // (render.md §21).
+    // Hybrid rendering reuses this rather than re-implementing rasterization.
     void RenderGBuffer(const Scene& scene, const Camera& camera, GBuffer& gbuffer, const RenderSettings& settings);
 };
 } // namespace hr

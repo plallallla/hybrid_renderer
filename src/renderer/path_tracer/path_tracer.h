@@ -6,20 +6,25 @@
 
 namespace hr
 {
-// CPU path tracer (--mode pathtrace). It consumes the same shared Scene /
-// Camera / PBRLite Material as the rasterizer, builds a RayScene from the
-// flattened TracePrimitive list (geometry.md / render.md §20) and interprets
-// the PBRLite material as a simple BSDF (material.md §7.2 / render.md §15):
+// CPU path tracer. It consumes the shared Scene / Camera / Material data,
+// builds a RayScene from TracePrimitives, and interprets the material as a
+// small BSDF:
 //   metallic <  0.5 -> diffuse (Lambertian) bounce
 //   metallic >= 0.5 -> rough-metal reflection bounce
-// Radiance comes from rays that escape the scene and sample Scene::background
-// (a constant sky), so the test scene should use a non-black background.
+// Radiance comes from Scene::background, emissive geometry and explicit
+// area-light sampling.
 class PathTracer final : public IRenderer
 {
 public:
     void Render(const Scene& scene, const Camera& camera, Framebuffer& output, const RenderSettings& settings) override;
 
 private:
-    Vec3 TraceRay(const Scene& scene, const RayScene& rayScene, const Ray& ray, int depth, Random& rng) const;
+    Vec3 TraceRay(
+        const Scene& scene,
+        const RayScene& rayScene,
+        const Ray& ray,
+        int depth,
+        Random& rng,
+        const RenderSettings& settings) const;
 };
 } // namespace hr

@@ -17,7 +17,7 @@ struct BVHNode
     bool IsLeaf() const { return count > 0; }
 };
 
-// Median-split BVH over a TracePrimitive list (geometry.md §10-12). Build()
+// Median-split BVH over a TracePrimitive list. Build()
 // reorders the caller's primitive vector in place (nth_element on the longest
 // centroid axis) and keeps a pointer to it; leaf nodes reference contiguous
 // [first, first+count) ranges. Leaf size is 4. Traversal is an explicit stack,
